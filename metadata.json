@@ -1,0 +1,5 @@
+{
+  "name": "Dataline AI",
+  "description": "An interactive platform to upload datasets, generate insights and dashboards through an AI chat, and train/use machine learning models for predictions conversationally.",
+  "requestFramePermissions": []
+}
