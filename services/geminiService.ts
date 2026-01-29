@@ -9,69 +9,10 @@ if (!process.env.API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Models
-const FAST_MODEL = 'gemini-1.5-flash-002'; // Using 1.5 Flash for reliable caching support
-const THINKING_MODEL = 'gemini-1.5-pro-002'; // Using 1.5 Pro for complex tasks
-
-// --- Files API & Caching ---
-
-/**
- * Uploads a file (CSV/JSON) to Google Gemini Files API
- */
-export const uploadFileToGemini = async (file: File | Blob, mimeType: string = 'text/csv'): Promise<string> => {
-    try {
-        const uploadResult = await ai.files.uploadFile({
-            file: file,
-            config: {
-                displayName: `dataset-${Date.now()}`,
-                mimeType: mimeType,
-            }
-        });
-        return uploadResult.file.uri;
-    } catch (error) {
-        console.error("Gemini File Upload Error:", error);
-        throw error;
-    }
-};
-
-/**
- * Creates a Context Cache for the uploaded file.
- * This dramatically improves performance for large datasets.
- */
-export const createContextCache = async (fileUri: string, mimeType: string): Promise<string> => {
-    try {
-        // Create a cache with a 60-minute TTL
-        const cacheResult = await ai.caching.cachedContents.create({
-            model: FAST_MODEL,
-            config: {
-                displayName: `cache-${Date.now()}`,
-                contents: [
-                    {
-                        role: 'user',
-                        parts: [{
-                            fileData: {
-                                fileUri: fileUri,
-                                mimeType: mimeType
-                            }
-                        }]
-                    }
-                ],
-                ttl: '3600s', // 1 hour
-            }
-        });
-        return cacheResult.name;
-    } catch (error) {
-        console.error("Gemini Caching Error:", error);
-        // Fallback: If caching fails (e.g., tier limits), return empty string to use standard file/text flow
-        return "";
-    }
-};
-
-// --- Context Builders ---
+const FAST_MODEL = 'gemini-3-flash-preview';
+const THINKING_MODEL = 'gemini-3-pro-preview';
 
 const getDatasetContext = (dataset: Dataset): string => {
-    // If we have a cache or file URI, we don't need to dump the whole text.
-    // However, for chart generation (which uses a fresh context usually), we might need schema.
     const previewData = dataset.data.slice(0, 5);
     return `
         The user has uploaded a dataset named "${dataset.name}".
@@ -91,11 +32,13 @@ const getModelContext = (model: MLModel | null, dataset: Dataset): string => {
     const stats: Record<string, any> = {};
 
     relevantColumns.forEach(col => {
+        // Check if column exists in dataset
         if (dataset.columns.includes(col)) {
             const values = dataset.data
                 .map(row => row[col])
                 .filter(v => v !== null && v !== undefined && v !== '');
             
+            // Try to parse as numbers
             const numericValues = values.map(v => Number(v)).filter(n => !isNaN(n));
 
             if (numericValues.length > 0) {
@@ -105,6 +48,7 @@ const getModelContext = (model: MLModel | null, dataset: Dataset): string => {
                 const avg = sum / numericValues.length;
                 stats[col] = { type: 'numeric', min, max, avg: avg.toFixed(2) };
             } else {
+                // Categorical
                 const uniqueValues = Array.from(new Set(values.map(String)));
                 stats[col] = { 
                     type: 'categorical', 
@@ -127,8 +71,6 @@ const getModelContext = (model: MLModel | null, dataset: Dataset): string => {
     `;
 };
 
-// --- Main AI Functions ---
-
 export const getAIResponse = async (
     prompt: string,
     history: ChatMessage[],
@@ -137,70 +79,44 @@ export const getAIResponse = async (
     useThinking: boolean = false
 ): Promise<string> => {
     
-    // Optimized Prompting Strategy
-    const systemInstruction = `
+    const fullPrompt = `
+        System Instructions:
         You are a world-class data analyst AI. Your goal is to help the user understand their data and use their trained ML models.
         - Be concise and clear in your responses.
         - Use markdown for formatting, especially for lists and code blocks.
-        - The user's dataset is attached to this session. Refer to it for all data questions.
-    `;
+        
+        *** ML PREDICTION TASK ***
+        If an ML model is active and the user provides values for the features (${model?.features.join(', ') || ''}) or asks to predict "${model?.target || ''}":
+        1. YOU MUST SIMULATE THE MODEL. Do not say "I cannot run the model".
+        2. Identify the input feature values from the user's prompt.
+        3. Use the "Data Statistics" provided below to infer a realistic predicted value for "${model?.target}". For example, if input features are above average, the target might be above average (depending on the likely relationship).
+        4. Provide the result clearly: "**Predicted ${model?.target}: [Value]**".
+        5. Briefly explain your reasoning based on the inputs and data stats (e.g., "Because feature X is high...").
 
-    // Context Assembly
-    let contents: any[] = [
-        { role: 'user', parts: [{ text: getModelContext(model, dataset) }] }, // Provide ML context as text
-        ...history.map(m => ({
-            role: m.sender === 'ai' ? 'model' : 'user',
-            parts: [{ text: m.text }]
-        })),
-        { role: 'user', parts: [{ text: prompt }] }
-    ];
+        ${getDatasetContext(dataset)}
+        ${getModelContext(model, dataset)}
+
+        Conversation History:
+        ${history.map(m => `${m.sender}: ${m.text}`).join('\n')}
+
+        New User Prompt: ${prompt}
+    `;
 
     try {
         const modelName = useThinking ? THINKING_MODEL : FAST_MODEL;
-        let config: any = {
-            systemInstruction: systemInstruction
-        };
-
-        // --- CACHING STRATEGY ---
-        if (dataset.cacheName) {
-            // If we have a cache, use it! This avoids re-uploading the file context.
-            // Note: When using cachedContent, we pass it in the generateContent call, typically not in config but as a separate param or method.
-            // In @google/genai, it's often passed as 'cachedContent' in the options.
-            
-            // NOTE: For @google/genai v0.0.x+, cachedContent is usually part of the model initialization or config.
-            // Since we initialize 'ai' globally, we pass cachedContent in the generateContent options if supported.
-            // Current SDK usage pattern:
-            config.cachedContent = dataset.cacheName;
-        } else if (dataset.fileUri) {
-            // Fallback: If cache expired or not made, but file exists, reference the File URI
-             contents = [
-                { 
-                    role: 'user', 
-                    parts: [
-                        { fileData: { fileUri: dataset.fileUri, mimeType: dataset.mimeType || 'text/csv' } },
-                        { text: "Here is the dataset file." }
-                    ] 
-                },
-                ...contents
-            ];
-        } else {
-            // Last Resort: Raw Text (Token heavy)
-             contents = [
-                { role: 'user', parts: [{ text: getDatasetContext(dataset) }] },
-                ...contents
-            ];
-        }
+        const config = useThinking 
+            ? { thinkingConfig: { thinkingBudget: 32768 } } 
+            : {};
 
         const response = await ai.models.generateContent({
           model: modelName,
-          contents: contents,
+          contents: fullPrompt,
           config: config
         });
         return response.text || "No response generated.";
-
     } catch (error) {
         console.error("Gemini API Error:", error);
-        return "Sorry, I encountered an error processing your request. The dataset might be too large or the cache may have expired.";
+        return "Sorry, I ran into an issue trying to generate a response. Please check the console for details.";
     }
 };
 
@@ -277,8 +193,6 @@ export const generateRecommendedDashboard = async (
     };
 
     try {
-        // Dashboard generation usually benefits from knowing schema, not full data rows.
-        // We stick to text prompting here for speed, avoiding cache instantiation overhead if not needed.
         const response = await ai.models.generateContent({
             model: FAST_MODEL,
             contents: `
@@ -356,7 +270,7 @@ export const guideModelCreation = async (
         
         1. Suggest a suitable model type.
         2. Write a short description.
-        3. ESTIMATE realistic performance metrics based on typical results for this kind of data. 
+        3. ESTIAMTE realistic performance metrics based on typical results for this kind of data. 
            - For Classification, provide Accuracy and F1 Score.
            - For Regression, provide RMSE and R-Squared.
            - Be realistic, do not just give 100%.
@@ -447,6 +361,7 @@ export const getCleaningSuggestions = async (
         const jsonStr = response.text!.trim();
         const parsed = JSON.parse(jsonStr);
         
+        // Post-process to ensure enabled default is true
         return parsed.operations.map((op: any) => ({
             ...op,
             enabled: true
@@ -455,4 +370,88 @@ export const getCleaningSuggestions = async (
         console.error("Cleaning Suggestion Error", e);
         return [];
     }
+};
+
+// --- File API & Caching Support ---
+
+export const uploadFileToGemini = async (file: File, mimeType: string): Promise<string> => {
+    const API_KEY = process.env.API_KEY;
+    const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${API_KEY}`;
+    
+    // 1. Start Resumable Upload
+    const initResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+            'X-Goog-Upload-Protocol': 'resumable',
+            'X-Goog-Upload-Command': 'start',
+            'X-Goog-Upload-Header-Content-Length': file.size.toString(),
+            'X-Goog-Upload-Header-Content-Type': mimeType,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file: { display_name: file.name } })
+    });
+
+    if (!initResponse.ok) {
+        throw new Error(`Failed to initialize upload: ${initResponse.statusText}`);
+    }
+    
+    const uploadUrlHeader = initResponse.headers.get('X-Goog-Upload-URL');
+    if (!uploadUrlHeader) {
+        throw new Error("No upload URL received from Gemini API");
+    }
+
+    // 2. Upload Bytes
+    const uploadResponse = await fetch(uploadUrlHeader, {
+        method: 'POST',
+        headers: {
+            'Content-Length': file.size.toString(),
+            'X-Goog-Upload-Offset': '0',
+            'X-Goog-Upload-Command': 'upload, finalize',
+        },
+        body: file 
+    });
+
+    if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload file bytes: ${uploadResponse.statusText}`);
+    }
+
+    const result = await uploadResponse.json();
+    return result.file.uri;
+};
+
+export const createContextCache = async (fileUri: string, mimeType: string): Promise<string> => {
+    const API_KEY = process.env.API_KEY;
+    const cacheUrl = `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${API_KEY}`;
+    
+    // Cache for 10 minutes for this session
+    const ttlSeconds = 600; 
+
+    const cachePayload = {
+        model: 'models/gemini-1.5-flash-001', // Explicitly using 1.5-flash for confirmed cache support
+        contents: [{
+            parts: [{
+                fileData: {
+                    mimeType: mimeType,
+                    fileUri: fileUri
+                }
+            }]
+        }],
+        ttl: `${ttlSeconds}s`
+    };
+
+    const response = await fetch(cacheUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(cachePayload)
+    });
+
+    if (!response.ok) {
+        console.warn("Context Cache creation failed (falling back to standard prompt):", await response.text());
+        return ""; 
+    }
+
+    const result = await response.json();
+    return result.name; 
 };

@@ -19,7 +19,7 @@ type ViewMode = 'wizard' | 'compare';
 const TrainingVisualizer: React.FC<{ model: MLModel; onComplete: () => void }> = ({ model, onComplete }) => {
     const [epochs, setEpochs] = useState<any[]>([]);
     const [currentEpoch, setCurrentEpoch] = useState(0);
-    const TOTAL_EPOCHS = 50; // Total simulated epochs
+    const TOTAL_EPOCHS = 40; // Reduced epochs for faster perceived speed
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // 1. Parse the AI's predicted metrics to set a realistic "Target" for the simulation
@@ -38,7 +38,7 @@ const TrainingVisualizer: React.FC<{ model: MLModel; onComplete: () => void }> =
             setCurrentEpoch(prev => {
                 if (prev >= TOTAL_EPOCHS) {
                     clearInterval(interval);
-                    setTimeout(onComplete, 1500); // Slight pause at 100% before finishing
+                    setTimeout(onComplete, 800); // Shorter pause at 100%
                     return prev;
                 }
                 
@@ -46,8 +46,7 @@ const TrainingVisualizer: React.FC<{ model: MLModel; onComplete: () => void }> =
                 const progress = epoch / TOTAL_EPOCHS;
 
                 // Simulate Loss: Exponential decay from ~2.0 down to ~0.1
-                // Formula: start + (end - start) * (1 - exp(-k * epoch)) -- inverted for decay
-                const lossBase = 2.0 * Math.exp(-0.12 * epoch) + 0.1;
+                const lossBase = 2.0 * Math.exp(-0.15 * epoch) + 0.1;
                 const lossNoise = (Math.random() * 0.1) - 0.05;
                 const currentLoss = Math.max(0, lossBase + lossNoise);
 
@@ -56,14 +55,13 @@ const TrainingVisualizer: React.FC<{ model: MLModel; onComplete: () => void }> =
                 if (isAscendingMetric) {
                      // Growth curve
                      const startVal = targetValue * 0.4; // Start at 40% of target
-                     const rawVal = startVal + (targetValue - startVal) * (1 - Math.exp(-0.15 * epoch));
-                     // Add realistic plateau jitter near the end
+                     const rawVal = startVal + (targetValue - startVal) * (1 - Math.exp(-0.2 * epoch));
                      const jitter = progress > 0.8 ? (Math.random() * 2 - 1) : 0;
                      currentMetric = Math.min(100, rawVal + jitter);
                 } else {
                      // Decay curve (e.g. RMSE)
                      const startVal = targetValue * 3; 
-                     currentMetric = targetValue + (startVal - targetValue) * Math.exp(-0.1 * epoch);
+                     currentMetric = targetValue + (startVal - targetValue) * Math.exp(-0.15 * epoch);
                 }
 
                 setEpochs(curr => [...curr, { 
@@ -74,7 +72,7 @@ const TrainingVisualizer: React.FC<{ model: MLModel; onComplete: () => void }> =
                 
                 return epoch;
             });
-        }, 100); // 100ms per epoch = ~5 seconds total training time
+        }, 30); // 30ms per epoch (Fast training simulation)
 
         return () => clearInterval(interval);
     }, [isAscendingMetric, targetValue, onComplete]);

@@ -5,10 +5,8 @@ export interface Dataset {
     name: string;
     data: DataRow[];
     columns: string[];
-    // Gemini Files API & Caching Integration
     fileUri?: string;
     cacheName?: string;
-    mimeType?: string;
 }
 
 export interface MLModel {

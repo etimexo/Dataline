@@ -232,14 +232,16 @@ const DatalineApp: React.FC = () => {
             setActiveView('upload');
         }
         setActiveModel(project.models && project.models.length > 0 ? project.models[0] : null);
-        setIsChatOpen(false);
+        // Do not force chat open on project load
     };
 
     const handleDatasetUpload = (dataset: Dataset) => {
         setDatasets(prev => [...prev, dataset]);
         setActiveDataset(dataset);
         setActiveView('dashboard');
-        setIsChatOpen(true);
+        // REMOVED: setIsChatOpen(true) to respect user preference
+        // Only open if it's the very first interaction and they haven't closed it, 
+        // but cleaner to just let user toggle it.
         addToast("Dataset uploaded & ready", "success");
 
         const firstMessage: ChatMessage = { 
@@ -248,12 +250,16 @@ const DatalineApp: React.FC = () => {
             text: `Hello! I'm your Dataline assistant. I've loaded "**${dataset.name}**".\n\nYou can ask me to:\n* Visualize trends (e.g., "Show me a bar chart of Sales by Region")\n* Analyze patterns (e.g., "What is the correlation between price and demand?")\n* Build ML models (e.g., "Predict future sales")`
         };
         setChatHistory(prev => [...prev, firstMessage]);
+        
+        if (chatHistory.length === 0) {
+            setIsChatOpen(true); // Only open automatically on the very first dataset of a session
+        }
     };
 
     const handleModelCreation = (model: MLModel) => {
         setMlModels(prev => [...prev, model]);
         setActiveModel(model);
-        setIsChatOpen(true);
+        // REMOVED: setIsChatOpen(true) to respect user preference
         addToast(`Model "${model.name}" created`, "success");
     };
 
