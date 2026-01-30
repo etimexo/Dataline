@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import Button from './ui/Button';
-import { XIcon, BoltIcon, GoogleIcon } from './ui/Icons';
+import { XIcon, BoltIcon, GoogleIcon, EyeIcon, EyeOffIcon } from './ui/Icons';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -18,6 +18,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMode = 'l
     // Auth Fields
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     
     // Metadata Fields
     const [fullName, setFullName] = useState('');
@@ -35,6 +36,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMode = 'l
         setMode(defaultMode);
         setError(null);
         setSuccessMessage(null);
+        setShowPassword(false);
     }, [defaultMode, isOpen]);
 
     if (!isOpen) return null;
@@ -350,14 +352,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, defaultMode = 'l
                                         </button>
                                     )}
                                 </div>
-                                <input 
-                                    type="password" 
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full bg-black/40 border border-gray-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all placeholder-gray-600"
-                                    placeholder="••••••••"
-                                />
+                                <div className="relative">
+                                    <input 
+                                        type={showPassword ? "text" : "password"}
+                                        required
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="w-full bg-black/40 border border-gray-600 rounded-lg p-3 pr-10 text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all placeholder-gray-600"
+                                        placeholder="••••••••"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+                                        tabIndex={-1}
+                                    >
+                                        {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                                    </button>
+                                </div>
                             </div>
                         )}
 

@@ -710,7 +710,7 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
                 <div className="overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-600">
                     {/* General Settings */}
                     <div className="space-y-4">
-                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">General</h4>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">General Configuration</h4>
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Visual Title</label>
                             <input 
@@ -720,6 +720,7 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
                                 className="w-full bg-gray-700 border border-gray-600 rounded p-2 focus:ring-indigo-500 text-white focus:outline-none"
                                 placeholder="e.g., Sales by Region"
                             />
+                            <p className="text-xs text-gray-500 mt-1">A descriptive name for your chart.</p>
                         </div>
                         
                         <div>
@@ -735,11 +736,12 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
                                     </button>
                                 ))}
                             </div>
+                            <p className="text-xs text-gray-500 mt-1">Select how you want to visualize the data.</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                              <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">X-Axis</label>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">X-Axis (Category)</label>
                                 <select 
                                     value={xKey} 
                                     onChange={(e) => setXKey(e.target.value)}
@@ -749,7 +751,7 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
                                 </select>
                             </div>
                              <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Y-Axis</label>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Y-Axis (Value)</label>
                                 <select 
                                     value={yKey} 
                                     onChange={(e) => setYKey(e.target.value)}
@@ -762,26 +764,27 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
                         
                         {type !== 'scatter' && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Aggregation</label>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Aggregation Method</label>
                                 <select 
                                     value={aggregation} 
                                     onChange={(e) => setAggregation(e.target.value as AggregationType)}
                                     className="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none"
                                 >
-                                    <option value="sum">Sum</option>
-                                    <option value="avg">Average</option>
-                                    <option value="count">Count</option>
-                                    <option value="min">Minimum</option>
-                                    <option value="max">Maximum</option>
-                                    <option value="none">No Aggregation</option>
+                                    <option value="sum">Sum (Total)</option>
+                                    <option value="avg">Average (Mean)</option>
+                                    <option value="count">Count (Frequency)</option>
+                                    <option value="min">Minimum Value</option>
+                                    <option value="max">Maximum Value</option>
+                                    <option value="none">No Aggregation (Raw Data)</option>
                                 </select>
+                                <p className="text-xs text-gray-500 mt-1">How multiple values for the same X category are combined.</p>
                             </div>
                         )}
                     </div>
 
                     {/* Appearance Settings */}
                     <div className="space-y-4 pt-4 border-t border-gray-700">
-                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Appearance</h4>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Visual Appearance</h4>
                         
                         <div className="grid grid-cols-2 gap-4">
                             {type !== 'pie' && (
@@ -830,17 +833,26 @@ const CreateChartModal: React.FC<{ dataset: Dataset; onClose: () => void; onSave
 
                         {/* Specific Configs */}
                         {(type === 'line' || type === 'area') && (
-                            <div>
-                                <label className="block text-xs font-medium text-gray-400 mb-1">Line Thickness ({strokeWidth}px)</label>
-                                <input 
-                                    type="range" 
-                                    min="1" 
-                                    max="10" 
-                                    step="1"
-                                    value={strokeWidth}
-                                    onChange={(e) => setStrokeWidth(Number(e.target.value))}
-                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                                />
+                            <div className="bg-gray-700/30 p-3 rounded-lg border border-gray-600/50">
+                                <label className="block text-xs font-medium text-gray-300 mb-2 flex justify-between">
+                                    <span>Line Thickness</span>
+                                    <span className="text-indigo-400">{strokeWidth}px</span>
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-[10px] text-gray-500">Thin</span>
+                                    <input 
+                                        type="range" 
+                                        min="1" 
+                                        max="10" 
+                                        step="1"
+                                        value={strokeWidth}
+                                        onChange={(e) => setStrokeWidth(Number(e.target.value))}
+                                        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                        title="Drag to adjust line thickness"
+                                    />
+                                    <span className="text-[10px] text-gray-500">Thick</span>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1">Controls the visual weight of the lines.</p>
                             </div>
                         )}
                         

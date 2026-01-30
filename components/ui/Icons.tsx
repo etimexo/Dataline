@@ -152,3 +152,21 @@ export const GoogleIcon: React.FC<{className?: string}> = ({className}) => (
         <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
     </svg>
 );
+
+export const EyeIcon: React.FC<{className?: string}> = ({className}) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+        <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+        <path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6" />
+    </svg>
+);
+
+export const EyeOffIcon: React.FC<{className?: string}> = ({className}) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+        <path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" />
+        <path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 3.145 -3.658 5.435 -4.691" />
+        <path d="M20.942 16.946a14.2 14.2 0 0 0 3.237 -3.225c-2.4 -4 -5.4 -6 -9 -6a9.028 9.028 0 0 0 -2.717 .416" />
+        <path d="M3 3l18 18" />
+    </svg>
+);
