@@ -14,9 +14,12 @@ import HistoryView from './components/HistoryView';
 import ProjectSelector from './components/ProjectSelector';
 import LandingPage from './components/LandingPage';
 import AuthModal from './components/AuthModal';
+import OnboardingTour from './components/OnboardingTour';
 import Button from './components/ui/Button';
-import { ChatIcon, XIcon } from './components/ui/Icons';
+import { ChatIcon, XIcon, HelpIcon } from './components/ui/Icons';
 import { ToastProvider, useToast } from './components/ui/Toast';
+import { ThemeProvider } from './components/ui/ThemeContext';
+import ReportBuilder from './components/ReportBuilder';
 
 const DatalineApp: React.FC = () => {
     // --- Auth State ---
@@ -40,9 +43,16 @@ const DatalineApp: React.FC = () => {
     const [charts, setCharts] = useState<ChartConfig[]>([]);
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
     
+    // --- Report State ---
+    const [reportCharts, setReportCharts] = useState<Set<string>>(new Set());
+    const [reportMessages, setReportMessages] = useState<Set<string>>(new Set());
+    const [showReportBuilder, setShowReportBuilder] = useState(false);
+
     // --- UI State ---
     const [activeView, setActiveView] = useState<View>('upload');
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [showOnboarding, setShowOnboarding] = useState(false);
 
     const { addToast } = useToast();
 
@@ -86,12 +96,23 @@ const DatalineApp: React.FC = () => {
         return () => subscription.unsubscribe();
     }, []);
 
+    // Check for onboarding
+    useEffect(() => {
+        // Only start onboarding if user is logged in, has entered a project, and hasn't completed it before
+        if (session && activeProject && !localStorage.getItem('dataline_onboarding_complete')) {
+            const timer = setTimeout(() => setShowOnboarding(true), 500);
+            return () => clearTimeout(timer);
+        }
+    }, [session, activeProject]);
+
+    const handleOnboardingComplete = () => {
+        setShowOnboarding(false);
+        localStorage.setItem('dataline_onboarding_complete', 'true');
+    };
+
     const loadUserProjects = async (userId: string) => {
         try {
             const dbProjects = await loadProjectsFromDB(userId);
-            // Only overwrite if we found data in DB. If DB is empty, 
-            // we might be converting a guest to a user, so we keep current state
-            // to allow it to be saved to the new ID in the auto-save effect.
             if (dbProjects && dbProjects.length > 0) {
                 setProjects(dbProjects);
             }
@@ -232,34 +253,43 @@ const DatalineApp: React.FC = () => {
             setActiveView('upload');
         }
         setActiveModel(project.models && project.models.length > 0 ? project.models[0] : null);
-        // Do not force chat open on project load
     };
 
     const handleDatasetUpload = (dataset: Dataset) => {
         setDatasets(prev => [...prev, dataset]);
         setActiveDataset(dataset);
         setActiveView('dashboard');
-        // REMOVED: setIsChatOpen(true) to respect user preference
-        // Only open if it's the very first interaction and they haven't closed it, 
-        // but cleaner to just let user toggle it.
         addToast("Dataset uploaded & ready", "success");
+
+        // --- Proactive AI Logic ---
+        let proactiveMessage = `I've successfully loaded "**${dataset.name}**" (${dataset.data.length} rows, ${dataset.columns.length} columns). \n\nWhat would you like to do next?`;
+        
+        const numericCols = dataset.columns.filter(col => {
+            const val = dataset.data[0]?.[col];
+            return typeof val === 'number';
+        });
+
+        if (numericCols.length > 0) {
+            proactiveMessage += `\n\n**Here are some ideas:**\n* "Analyze trends in ${numericCols[0]}"\n* "Predict future values for ${numericCols[0]}"`;
+        }
+        
+        proactiveMessage += `\n* "Generate a dashboard summary"\n* "Create a PDF report of my findings"`;
 
         const firstMessage: ChatMessage = { 
             id: `init-${Date.now()}`, 
             sender: 'ai', 
-            text: `Hello! I'm your Dataline assistant. I've loaded "**${dataset.name}**".\n\nYou can ask me to:\n* Visualize trends (e.g., "Show me a bar chart of Sales by Region")\n* Analyze patterns (e.g., "What is the correlation between price and demand?")\n* Build ML models (e.g., "Predict future sales")`
+            text: proactiveMessage
         };
         setChatHistory(prev => [...prev, firstMessage]);
         
         if (chatHistory.length === 0) {
-            setIsChatOpen(true); // Only open automatically on the very first dataset of a session
+            setIsChatOpen(true);
         }
     };
 
     const handleModelCreation = (model: MLModel) => {
         setMlModels(prev => [...prev, model]);
         setActiveModel(model);
-        // REMOVED: setIsChatOpen(true) to respect user preference
         addToast(`Model "${model.name}" created`, "success");
     };
 
@@ -268,9 +298,33 @@ const DatalineApp: React.FC = () => {
         addToast(`${newCharts.length} chart(s) added to dashboard`, "success");
     };
 
+    const handleUpdateChart = (updatedChart: ChartConfig) => {
+        setCharts(prev => prev.map(c => c.id === updatedChart.id ? updatedChart : c));
+        addToast("Chart updated", "success");
+    };
+
     const handleRemoveChart = (chartId: string) => {
         setCharts(prev => prev.filter(c => c.id !== chartId));
         addToast("Chart removed", "info");
+    };
+
+    // --- Report State Management ---
+    const toggleReportChart = (id: string) => {
+        setReportCharts(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
+        });
+    };
+
+    const toggleReportMessage = (id: string) => {
+        setReportMessages(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
+        });
     };
 
     const switchView = (view: View) => {
@@ -289,7 +343,11 @@ const DatalineApp: React.FC = () => {
                         charts={charts} 
                         dataset={activeDataset} 
                         onAddCharts={handleAddChart}
+                        onUpdateChart={handleUpdateChart}
                         onRemoveChart={handleRemoveChart}
+                        reportCharts={reportCharts}
+                        onToggleReportChart={toggleReportChart}
+                        openReportBuilder={() => setShowReportBuilder(true)}
                     />
                 ) : null;
             case 'data':
@@ -306,7 +364,7 @@ const DatalineApp: React.FC = () => {
             default:
                 return <DatasetUploader onDatasetUpload={handleDatasetUpload} />;
         }
-    }, [activeDataset, activeView, activeModel, charts, datasets, mlModels]);
+    }, [activeDataset, activeView, activeModel, charts, datasets, mlModels, reportCharts]);
 
     if (authLoading) {
         return (
@@ -321,12 +379,12 @@ const DatalineApp: React.FC = () => {
     }
 
     return (
-        <>
+        <div className="bg-gray-100 dark:bg-gray-900 min-h-screen transition-colors duration-200">
             {!activeProject ? (
                 <div className="relative">
                     <button 
                         onClick={handleSignOutRequest}
-                        className="absolute top-4 right-4 z-50 text-gray-400 hover:text-white text-sm"
+                        className="absolute top-4 right-4 z-50 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white text-sm"
                     >
                         Sign Out ({session.user.email})
                     </button>
@@ -338,7 +396,7 @@ const DatalineApp: React.FC = () => {
                     />
                 </div>
             ) : (
-                <div className="flex h-screen bg-gray-900 text-gray-100 font-sans relative">
+                <div className="flex h-screen font-sans relative overflow-hidden">
                     <Sidebar 
                         datasets={datasets}
                         models={mlModels}
@@ -348,8 +406,11 @@ const DatalineApp: React.FC = () => {
                         setActiveModel={setActiveModel}
                         switchView={switchView}
                         activeView={activeView}
+                        collapsed={isSidebarCollapsed}
+                        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                     />
-                    <div className="flex-1 flex flex-col overflow-hidden">
+                    
+                    <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-900">
                         <Header 
                             activeView={activeView} 
                             datasetName={activeDataset?.name} 
@@ -357,74 +418,92 @@ const DatalineApp: React.FC = () => {
                             projectName={activeProject.name}
                             saveStatus={saveStatus}
                             onSwitchProject={() => setActiveProject(null)}
+                            isChatOpen={isChatOpen}
+                            onToggleChat={() => setIsChatOpen(!isChatOpen)}
                         />
-                        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-900 p-4 sm:p-6 md:p-8 relative">
-                            {renderContent()}
-                        </main>
+                        
+                        <div className="flex-1 flex overflow-hidden relative">
+                            {/* Main Content Area */}
+                            <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 md:p-8 relative transition-all duration-300 ease-in-out">
+                                {renderContent()}
+                            </main>
+
+                            {/* Chat Sidebar Panel */}
+                            {activeDataset && (
+                                <div 
+                                    className={`border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col transition-all duration-300 ease-in-out ${
+                                        isChatOpen ? 'w-[400px] opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-full overflow-hidden'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                        <h3 className="font-semibold flex items-center gap-2 text-lg text-gray-800 dark:text-white">
+                                            <ChatIcon className="w-5 h-5 text-indigo-500" />
+                                            Assistant
+                                        </h3>
+                                        <button 
+                                            onClick={() => setIsChatOpen(false)} 
+                                            className="hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-colors text-gray-500 dark:text-gray-400"
+                                            aria-label="Close Chat"
+                                        >
+                                            <XIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-hidden relative">
+                                         <ChatInterface 
+                                            dataset={activeDataset} 
+                                            model={activeModel} 
+                                            messages={chatHistory}
+                                            setMessages={setChatHistory}
+                                            onNewChart={(chart) => handleAddChart([chart])}
+                                            reportMessages={reportMessages}
+                                            onToggleReportMessage={toggleReportMessage}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
-
-                    {/* Floating Chat Bubble */}
-                    {activeDataset && (
-                        <>
-                            <div 
-                                className={`fixed bottom-24 right-6 w-[90vw] md:w-[500px] bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden transition-all duration-300 origin-bottom-right z-50 flex flex-col ${
-                                    isChatOpen 
-                                    ? 'opacity-100 scale-100 translate-y-0 h-[85vh] max-h-[900px]' 
-                                    : 'opacity-0 scale-90 translate-y-10 h-0 pointer-events-none'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between p-4 bg-indigo-600 text-white shadow-md">
-                                    <h3 className="font-semibold flex items-center gap-2 text-lg">
-                                        <ChatIcon className="w-6 h-6" />
-                                        Dataline Assistant
-                                    </h3>
-                                    <button 
-                                        onClick={() => setIsChatOpen(false)} 
-                                        className="hover:bg-indigo-700 rounded-lg p-2 transition-colors flex items-center justify-center"
-                                        aria-label="Close Chat"
-                                    >
-                                        <XIcon className="w-6 h-6" />
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-hidden relative bg-gray-900">
-                                     <ChatInterface 
-                                        dataset={activeDataset} 
-                                        model={activeModel} 
-                                        messages={chatHistory}
-                                        setMessages={setChatHistory}
-                                        onNewChart={(chart) => handleAddChart([chart])}
-                                    />
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => setIsChatOpen(!isChatOpen)}
-                                className={`fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 z-50 hover:scale-110 ${
-                                    isChatOpen ? 'bg-gray-600 rotate-90 shadow-xl' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/30'
-                                }`}
-                                title={isChatOpen ? "Close Chat" : "Open Assistant"}
-                            >
-                                {isChatOpen ? <XIcon className="w-6 h-6 text-white" /> : <ChatIcon className="w-8 h-8 text-white" />}
-                            </button>
-                        </>
-                    )}
                 </div>
             )}
             
-            {/* Guest Sign Out Warning Modal */}
+            <OnboardingTour 
+                isActive={showOnboarding} 
+                onComplete={handleOnboardingComplete} 
+            />
+
+            {/* Report Builder Modal - Global */}
+            {showReportBuilder && activeDataset && (
+                <ReportBuilder 
+                    dataset={activeDataset} 
+                    selectedCharts={charts.filter(c => reportCharts.has(c.id))} 
+                    selectedMessages={chatHistory.filter(m => reportMessages.has(m.id)).map(m => m.text)}
+                    onClose={() => setShowReportBuilder(false)} 
+                />
+            )}
+
+            {activeProject && !showOnboarding && (
+                <button 
+                    onClick={() => setShowOnboarding(true)}
+                    className="fixed bottom-6 left-6 w-10 h-10 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-full flex items-center justify-center shadow-lg border border-gray-200 dark:border-gray-700 z-40 transition-colors"
+                    title="Start Tour"
+                >
+                    <HelpIcon className="w-5 h-5" />
+                </button>
+            )}
+            
             {showGuestWarning && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-md p-4 animate-fade-in-up">
-                    <div className="bg-gray-900 border border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-                        <div className="flex items-center gap-3 mb-4 text-red-400">
+                    <div className="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+                        <div className="flex items-center gap-3 mb-4 text-red-500 dark:text-red-400">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
                                 <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
                             </svg>
-                            <h2 className="text-xl font-bold text-white">Guest Data Warning</h2>
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Guest Data Warning</h2>
                         </div>
-                        <p className="text-gray-300 mb-6 leading-relaxed">
+                        <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
                             You are currently using a Guest account. 
                             <br/><br/>
-                            <span className="font-bold text-white">If you sign out now, all your projects and data will be permanently deleted from this device.</span>
+                            <span className="font-bold text-gray-800 dark:text-white">If you sign out now, all your projects and data will be permanently deleted from this device.</span>
                         </p>
                         <div className="space-y-3">
                              <Button onClick={handleGuestSave} className="w-full">
@@ -432,13 +511,13 @@ const DatalineApp: React.FC = () => {
                             </Button>
                             <button 
                                 onClick={performSignOut}
-                                className="w-full py-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-500/30 rounded-lg transition-colors font-medium text-sm"
+                                className="w-full py-2.5 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/30 rounded-lg transition-colors font-medium text-sm"
                             >
                                 Delete Everything & Sign Out
                             </button>
                              <button 
                                 onClick={() => setShowGuestWarning(false)}
-                                className="w-full text-gray-500 hover:text-white text-sm py-2"
+                                className="w-full text-gray-500 hover:text-gray-800 dark:hover:text-white text-sm py-2"
                             >
                                 Cancel
                             </button>
@@ -456,14 +535,16 @@ const DatalineApp: React.FC = () => {
                 defaultMode={showAuthModal ? 'signup' : 'update_password'}
                 onGuestLogin={handleGuestLogin} 
             />
-        </>
+        </div>
     );
 };
 
 export default function App() {
     return (
-        <ToastProvider>
-            <DatalineApp />
-        </ToastProvider>
+        <ThemeProvider>
+            <ToastProvider>
+                <DatalineApp />
+            </ToastProvider>
+        </ThemeProvider>
     );
 }

@@ -3,7 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Dataset, MLModel, ChatMessage, ChartConfig } from '../types';
 import { getAIResponse, generateChartConfigFromAI } from '../services/geminiService';
 import Button from './ui/Button';
-import { SendIcon, BrainIcon, BoltIcon, ThumbUpIcon, ThumbDownIcon } from './ui/Icons';
+import { SendIcon, BrainIcon, BoltIcon, ThumbUpIcon, ThumbDownIcon, DocumentIcon } from './ui/Icons';
+import { useToast } from './ui/Toast';
 import Markdown from 'react-markdown';
 
 interface ChatInterfaceProps {
@@ -12,12 +13,16 @@ interface ChatInterfaceProps {
     messages: ChatMessage[];
     setMessages: (messages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
     onNewChart: (chart: ChartConfig) => void;
+    reportMessages?: Set<string>;
+    onToggleReportMessage?: (id: string) => void;
 }
 
 const ChatMessageBubble: React.FC<{ 
     message: ChatMessage; 
     onFeedback: (id: string, type: 'up' | 'down') => void;
-}> = ({ message, onFeedback }) => {
+    isInReport?: boolean;
+    onToggleReport?: (id: string) => void;
+}> = ({ message, onFeedback, isInReport, onToggleReport }) => {
     const isUser = message.sender === 'user';
     return (
         <div className={`flex items-start gap-3 my-4 ${isUser ? 'justify-end' : ''}`}>
@@ -27,34 +32,47 @@ const ChatMessageBubble: React.FC<{
                 </div>
             )}
             <div className={`flex flex-col gap-1 max-w-[85%]`}>
-                <div className={`p-3.5 rounded-2xl text-sm shadow-sm ${isUser ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-800 border border-gray-700 text-gray-200 rounded-bl-none'}`}>
+                <div className={`p-3.5 rounded-2xl text-sm shadow-sm ${
+                    isUser 
+                    ? 'bg-indigo-600 text-white rounded-br-none' 
+                    : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-none'
+                }`}>
                      {message.isTyping ? 
                         (<div className="flex items-center space-x-1 h-5">
                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                             <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></span>
                         </div>) :
-                        (<div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-700">
+                        (<div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-pre:bg-gray-100 dark:prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700">
                             <Markdown>{message.text}</Markdown>
                         </div>)
                     }
                 </div>
                 {!isUser && !message.isTyping && (
-                    <div className="flex gap-2 ml-1">
+                    <div className="flex gap-2 ml-1 opacity-70 hover:opacity-100 transition-opacity items-center">
                         <button 
                             onClick={() => onFeedback(message.id, 'up')} 
-                            className={`transition-colors ${message.feedback === 'up' ? 'text-green-400' : 'text-gray-500 hover:text-gray-300'}`}
+                            className={`p-1 rounded-full transition-all ${message.feedback === 'up' ? 'text-green-500 bg-green-500/10' : 'text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                             title="Helpful"
                         >
                             <ThumbUpIcon className="w-4 h-4" />
                         </button>
                         <button 
                             onClick={() => onFeedback(message.id, 'down')} 
-                            className={`transition-colors ${message.feedback === 'down' ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'}`}
+                            className={`p-1 rounded-full transition-all ${message.feedback === 'down' ? 'text-red-500 bg-red-500/10' : 'text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                             title="Not Helpful"
                         >
                             <ThumbDownIcon className="w-4 h-4" />
                         </button>
+                        {onToggleReport && (
+                            <button
+                                onClick={() => onToggleReport(message.id)}
+                                className={`p-1 rounded-full transition-all ml-2 ${isInReport ? 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/50 dark:text-indigo-300' : 'text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                title={isInReport ? "Remove from Report" : "Add to Report"}
+                            >
+                                <DocumentIcon className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
@@ -62,12 +80,13 @@ const ChatMessageBubble: React.FC<{
     );
 };
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages, setMessages, onNewChart }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages, setMessages, onNewChart, reportMessages, onToggleReportMessage }) => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isThinkingMode, setIsThinkingMode] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const { addToast } = useToast();
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,14 +107,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages,
     };
 
     const handleFeedback = (messageId: string, type: 'up' | 'down') => {
-        // Log feedback (in a real app, this would send to an analytics service)
         const message = messages.find(m => m.id === messageId);
-        console.log(`[Feedback] User rated message "${messageId}" as ${type}. Content: "${message?.text.substring(0, 50)}..."`);
+        
+        // Log detailed feedback for analysis
+        console.group("AI Response Feedback");
+        console.log(`Rating: ${type.toUpperCase()}`);
+        console.log(`Message ID: ${messageId}`);
+        console.log(`Content Snippet: ${message?.text.substring(0, 100)}...`);
+        console.log(`Context (Model): ${model?.name || 'None'}`);
+        console.log(`Timestamp: ${new Date().toISOString()}`);
+        console.groupEnd();
         
         // Update local state to show selection
         setMessages(prev => prev.map(msg => 
             msg.id === messageId ? { ...msg, feedback: type } : msg
         ));
+
+        // Show toast
+        if (type === 'up') {
+            addToast("Thanks! We're glad this was helpful.", "success");
+        } else {
+            addToast("Thanks for the feedback. We'll improve this.", "info");
+        }
     };
 
     const handleSubmit = async () => {
@@ -164,10 +197,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages,
     };
 
     return (
-        <div className="flex flex-col h-full bg-gray-900">
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-900 space-y-2 scrollbar-thin scrollbar-thumb-gray-700">
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900 space-y-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
                 {messages.length === 0 && (
-                    <div className="text-gray-500 text-center mt-10 text-sm">
+                    <div className="text-gray-400 dark:text-gray-500 text-center mt-10 text-sm">
                         Start the conversation...
                     </div>
                 )}
@@ -176,19 +209,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages,
                         key={msg.id} 
                         message={msg} 
                         onFeedback={handleFeedback}
+                        isInReport={reportMessages?.has(msg.id)}
+                        onToggleReport={onToggleReportMessage}
                     />
                 ))}
                 <div ref={messagesEndRef} />
             </div>
             
-            <div className="p-3 border-t border-gray-700 bg-gray-800">
-                <div className="flex items-end gap-2 bg-gray-900 rounded-xl p-2 border border-gray-700 shadow-inner focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all">
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div className="flex items-end gap-2 bg-gray-50 dark:bg-gray-900 rounded-xl p-2 border border-gray-200 dark:border-gray-700 shadow-inner focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all">
                     <button
                         onClick={() => setIsThinkingMode(!isThinkingMode)}
                         className={`p-2 rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 min-w-[50px] ${
                             isThinkingMode 
                             ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
-                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                            : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
                         }`}
                         title={isThinkingMode ? "Thinking Mode: On (Slower, deeper reasoning)" : "Fast Mode: On (Quick responses)"}
                     >
@@ -207,20 +242,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ dataset, model, messages,
                             ? `Ask about "${model.target}"...` 
                             : "Ask a question about your data..."
                         }
-                        className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-white text-sm placeholder-gray-500 py-2.5 max-h-32 leading-relaxed"
+                        className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500 py-2.5 max-h-32 leading-relaxed"
                         rows={1}
                         disabled={isLoading}
                     />
                     <Button 
+                        id="tour-chat-trigger"
                         onClick={handleSubmit} 
                         isLoading={isLoading} 
                         disabled={!input.trim()} 
-                        className={`!p-2 rounded-full self-center mb-0.5 transition-all ${input.trim() ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-gray-700 text-gray-500'}`}
+                        className={`!p-2 rounded-full self-center mb-0.5 transition-all ${input.trim() ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}
                     >
                         <SendIcon className="w-5 h-5" />
                     </Button>
                 </div>
-                <div className="text-[10px] text-gray-500 mt-2 text-center">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-2 text-center">
                     AI can make mistakes. Review generated insights.
                 </div>
             </div>
